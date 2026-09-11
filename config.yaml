@@ -1,0 +1,46 @@
+source:
+  base_url: "https://www.mql5.com"
+  # mql5.com/en/signals/mt4 (or mt5). The scraper crawls the flat "list" view:
+  #   https://www.mql5.com/en/signals/mt4/list/page2 ...
+  mt_version: both                 # 4, 5, or both; --mt overrides
+  discovery: full                  # full = sweep every re-sort + category tab for
+                                   #   the widest coverage (mql5 caps each listing
+                                   #   at 40/55 pages, so this is how you reach the
+                                   #   whole population); list = just the plain
+                                   #   listing. --discovery overrides.
+  accept_language: "en-US,en;q=0.9"
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+  # Per-trade "Trading history" is behind an MQL5 login and is out of scope; nothing
+  # here needs a session cookie. Headline stats, growth / balance / equity curves,
+  # monthly returns and the symbol distribution are all public.
+
+collector:
+  request_delay_seconds: 5.0      # + jitter, between requests. mql5 firewalls the
+                                  #   client IP after a few thousand rapid hits;
+                                  #   keep this high (>= 4) for a population run.
+  max_pages: 0                    # 0 = crawl the whole /list directory
+  budget_min: 0                   # 0 = run to completion; >0 = stop cleanly after N
+                                  #   minutes (discovery + collection both resume).
+                                  #   Use for environments that cap job lifetime.
+  min_recheck_hours: 12           # skip a signal re-collected more recently than this
+  nav_timeout_s: 30
+  retries: 4
+  # block handling: when this many requests fail back to back, assume a rate-limit
+  # block, sleep cooldown_seconds, rebuild the session, and resume the same request.
+  cooldown_seconds: 1200
+  block_threshold: 5
+  max_cooldowns: 8                # give up on a request after this many cooldowns
+  # --trades pass (logged-in Trading-history tab):
+  history_delay_s: 2.5           # per-page delay for the history pass (lighter endpoint)
+  history_max_pages: 100000      # per-signal page cap (~48 trades/page) - effectively uncapped
+  # --brokers pass (logged-in re-fetch of each signal page for its trade-server tag):
+  broker_delay_s: 6.0            # per-signal delay; keep gentle when it runs alongside --trades
+
+storage:
+  raw_dir: "./data/raw"
+  csv_dir: "./data/csv"
+  state_dir: "./data/state"
+  hdb_dir: "./data/hdb"
+
+kdb:
+  q_exe: "C:/q/w64/q.exe"
