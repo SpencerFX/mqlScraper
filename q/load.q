@@ -34,6 +34,22 @@
   if[0=count lines; :flip colz!(count colz)#()];
   flip colz!(ty;",") 0: lines }
 
+/ trades/<signalId>.csv - one small file per signal instead of one huge CSV
+.load.readOneCsv:{[path;colz;ty]
+  lines:read0 path;
+  if[2>count lines; :flip colz!(count colz)#()];
+  lines:1_lines;
+  lines:lines where 0<count each lines;
+  if[0=count lines; :flip colz!(count colz)#()];
+  flip colz!(ty;",") 0: lines }
+
+.load.readTradesDir:{[dir;colz;ty]
+  d:hsym `$dir;
+  if[()~key d; -1 "[load] missing trades dir ",dir; :flip colz!(count colz)#()];
+  files:key d;
+  if[0=count files; -1 "[load] empty trades dir ",dir; :flip colz!(count colz)#()];
+  raze {[dir;colz;ty;f] .load.readOneCsv[hsym `$dir,"/",string f;colz;ty] }[dir;colz;ty;] each files }
+
 / header order MUST match normalizer.normalize *_FIELDS
 .load.cSig:`signalId`mtVersion`name`authorLogin`authorName`accountType`url`firstSeen`lastSeen`broker`server
 .load.cSnap:`ts`signalId`name`authorLogin`growthPct`profitUsd`equityUsd`balanceUsd`initialDepositUsd`depositsUsd`withdrawalsUsd`currency`subscribers`subscriberFundsUsd`weeks`tradingDays`tradingDaysPct`tradesPerWeek`avgHoldingSec`latestTradeText`startedAt`trades`profitTrades`lossTrades`winRatePct`longTrades`longPct`shortTrades`shortPct`bestTradeUsd`worstTradeUsd`grossProfitUsd`grossProfitPips`grossLossUsd`grossLossPips`profitFactor`expectedPayoffUsd`avgProfitUsd`avgLossUsd`sharpeRatio`recoveryFactor`maxConsecWins`maxConsecWinsUsd`maxConsecLosses`maxConsecLossesUsd`tradingActivityPct`maxDepositLoadPct`algoTradingPct`monthlyGrowthPct`annualForecastPct`drawdownAbsUsd`drawdownMaxUsd`drawdownMaxPct`drawdownBalancePct`drawdownEquityPct`leverage`server
@@ -125,7 +141,7 @@
   .load.writeSplay[`symdist; t] }
 
 .load.doTrade:{
-  t:.load.readSafe["trades.csv"; .load.cTrade; "SJSSSS**FFFFFFFFJS*"];
+  t:.load.readTradesDir[.load.csv,"/trades"; .load.cTrade; "SJSSSS**FFFFFFFFJS*"];
   if[0=count t; -1 "[load] trade: no rows"; :()];
   t:update openTime:.load.pTs openTime, closeTime:.load.pTs closeTime, collectedAt:.load.pTs collectedAt from t;
   t:update pd:`date$closeTime from t;

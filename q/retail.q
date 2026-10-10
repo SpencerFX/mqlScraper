@@ -48,6 +48,22 @@
   if[0=count lines; :flip colz!(count colz)#()];
   flip colz!(ty;",") 0: lines }
 
+/ trades/<signalId>.csv - one small file per signal instead of one huge CSV
+.rt.readOneCsv:{[path;colz;ty]
+  lines:read0 path;
+  if[2>count lines; :flip colz!(count colz)#()];
+  lines:1_lines;
+  lines:lines where 0<count each lines;
+  if[0=count lines; :flip colz!(count colz)#()];
+  flip colz!(ty;",") 0: lines }
+
+.rt.readTradesDir:{[dir;colz;ty]
+  d:hsym `$dir;
+  if[()~key d; -1 "[retail] missing trades dir ",dir; :flip colz!(count colz)#()];
+  files:key d;
+  if[0=count files; -1 "[retail] empty trades dir ",dir; :flip colz!(count colz)#()];
+  raze {[dir;colz;ty;f] .rt.readOneCsv[hsym `$dir,"/",string f;colz;ty] }[dir;colz;ty;] each files }
+
 / ---- value coercion ---------------------------------------------------
 
 .rt.pTs:{  / list of char vectors -> timestamp vector (ISO-8601 in, tz suffix ignored)
@@ -119,7 +135,7 @@
   .rt.writePartitioned[`equity; t; `date] }
 
 .rt.doTrade:{
-  t:.rt.readSafe["trades.csv"; .rt.cTrade; "SJSSSS**FFFFFFFFJS*"];
+  t:.rt.readTradesDir[.rt.csv,"/trades"; .rt.cTrade; "SJSSSS**FFFFFFFFJS*"];
   if[0=count t; -1 "[retail] trade: no rows"; :()];
   t:update openTime:.rt.pTs openTime, closeTime:.rt.pTs closeTime, collectedAt:.rt.pTs collectedAt from t;
   t:update pd:`date$closeTime from t;

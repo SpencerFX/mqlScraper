@@ -1,4 +1,4 @@
-"""Append-oriented CSV sinks for the six output tables.
+"""Append-oriented CSV sinks for the output tables.
 
   signals.csv    upsert by signalId               (rewritten on flush; small)
   snapshots.csv  append-only (one row per signal per run)
@@ -6,6 +6,9 @@
   equity.csv     insert-once by (signalId, ts)     -- delete the file to force a refresh
   monthly.csv    insert-once by (signalId, year, month)
   symbols.csv    append-only (one block per signal per run, carries ts)
+  trades/<signalId>.csv  one file per signal, insert-once by tradeKey -- keeps any
+                 one file small and avoids re-scanning the whole trade history (now
+                 several million rows) just to dedup a single signal's new page.
 
 Column order is fixed by the *_FIELDS lists in normalizer.normalize.
 """
@@ -36,20 +39,21 @@ class CsvStore:
 
         self.paths = {name: self.dir / f"{name}.csv" for name in
                       ("signals", "snapshots", "growth", "equity", "monthly",
-                       "symbols", "trades")}
+                       "symbols")}
         self.fields = {
             "signals": SIGNAL_FIELDS, "snapshots": SNAPSHOT_FIELDS,
             "growth": GROWTH_FIELDS, "equity": EQUITY_FIELDS,
             "monthly": MONTHLY_FIELDS, "symbols": SYMBOL_FIELDS,
-            "trades": TRADE_FIELDS,
         }
+        self.trades_dir = self.dir / "trades"
+        self.trades_dir.mkdir(parents=True, exist_ok=True)
 
         self._signals = self._load_signals()
         self._growth_keys = self._load_keys("growth", lambda r: (r["signalId"], r["date"]))
         self._equity_keys = self._load_keys("equity", lambda r: (r["signalId"], r["ts"]))
         self._monthly_keys = self._load_keys(
             "monthly", lambda r: (r["signalId"], r["year"], r["month"]))
-        self._trade_keys = None  # lazily loaded by the trade-history pass only
+        self._trade_keys = {}  # signalId(str) -> set of tradeKeys, lazily loaded per-signal
 
         self._appended = {"snapshots": 0, "growth": 0, "equity": 0,
                           "monthly": 0, "symbols": 0, "trades": 0}
@@ -140,11 +144,46 @@ class CsvStore:
         self._append("symbols", rows)
         return len(rows)
 
+    def _trade_path(self, signal_id):
+        return self.trades_dir / f"{signal_id}.csv"
+
+    def _trade_keys_for(self, signal_id):
+        sid = str(signal_id)
+        keys = self._trade_keys.get(sid)
+        if keys is None:
+            keys = set()
+            p = self._trade_path(sid)
+            if p.exists():
+                with p.open("r", encoding="utf-8", newline="") as f:
+                    for row in csv.DictReader(f):
+                        tk = row.get("tradeKey")
+                        if tk:
+                            keys.add(tk)
+            self._trade_keys[sid] = keys
+        return keys
+
     def add_trades(self, rows):
-        if self._trade_keys is None:
-            self._trade_keys = self._load_keys("trades", lambda r: r["tradeKey"])
-        return self._add_once("trades", rows, self._trade_keys,
-                              lambda r: r["tradeKey"])
+        by_signal = {}
+        for r in rows:
+            by_signal.setdefault(str(r["signalId"]), []).append(r)
+        fresh_total = 0
+        for sid, rs in by_signal.items():
+            keys = self._trade_keys_for(sid)
+            fresh = [r for r in rs if r["tradeKey"] not in keys]
+            if not fresh:
+                continue
+            keys.update(r["tradeKey"] for r in fresh)
+            p = self._trade_path(sid)
+            new_file = not p.exists() or p.stat().st_size == 0
+            with p.open("a", encoding="utf-8", newline="") as f:
+                w = csv.writer(f)
+                if new_file:
+                    w.writerow(TRADE_FIELDS)
+                for r in fresh:
+                    w.writerow([_fmt(r.get(k)) for k in TRADE_FIELDS])
+            fresh_total += len(fresh)
+        self._appended["trades"] = self._appended.get("trades", 0) + fresh_total
+        return fresh_total
 
     def flush(self):
         """Rewrite signals.csv from memory (atomic)."""
