@@ -45,18 +45,31 @@ system "l ",.un.rootPath;
     if[not tname in key .Q.dd[root;`$d];
       .un.writePart[tname; "D"$d; emptyT] ] }[.un.root;tname;emptyT;] each dates; }
 
+/ A source table (equity_mql/trade_myfxbook/etc) can legitimately be ABSENT
+/ from a date partition entirely - e.g. fxbook's v7 crawl now reaches back to
+/ 2010-01-25, long before mql5's own coverage starts, so that date has
+/ trade_myfxbook but no trade_mql directory at all (not even an empty stub -
+/ nothing ever wrote one, since that date never existed in the root before).
+/ A plain `select ... from tname` spans every date the ROOT knows about and
+/ throws an OS file-not-found error on any date missing tname's directory
+/ outright. Restrict each source-table select to only the dates that
+/ actually have it, so one side's deeper history never breaks the other's.
+.un.datesWith:{[tname]
+  dates:"D"$ {x where x like "[12][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]"} string key .un.root;
+  dates where {[root;tname;dt] tname in key .Q.dd[root;`$string dt]}[.un.root;tname;] each dates }
+
 / ---- equity -----------------------------------------------------------
 
-em:.un.deenum select date,platform:`mql,acctId:signalId,ts,balance,equity from equity_mql;
-ef:.un.deenum select date,platform:`fxbook,acctId:systemId,ts:`timestamp$date,balance,equity from equity_myfxbook;
+em:.un.deenum select date,platform:`mql,acctId:signalId,ts,balance,equity from equity_mql where date in .un.datesWith[`equity_mql];
+ef:.un.deenum select date,platform:`fxbook,acctId:systemId,ts:`timestamp$date,balance,equity from equity_myfxbook where date in .un.datesWith[`equity_myfxbook];
 eq:em uj ef;
 .un.writePartitioned[`equity; eq; `date];
 .un.backfill[`equity; eq];
 
 / ---- growth -----------------------------------------------------------
 
-gm:.un.deenum select date,platform:`mql,acctId:signalId,growthPct from growth_mql;
-gf:.un.deenum select date,platform:`fxbook,acctId:systemId,growthPct from growth_myfxbook;
+gm:.un.deenum select date,platform:`mql,acctId:signalId,growthPct from growth_mql where date in .un.datesWith[`growth_mql];
+gf:.un.deenum select date,platform:`fxbook,acctId:systemId,growthPct from growth_myfxbook where date in .un.datesWith[`growth_myfxbook];
 gr:gm uj gf;
 .un.writePartitioned[`growth; gr; `date];
 .un.backfill[`growth; gr];
@@ -65,10 +78,10 @@ gr:gm uj gf;
 
 tm:.un.deenum select date,platform:`mql,acctId:signalId,tradeKey,kind,action,orderType,
   symbol,openTime,closeTime,openPrice,closePrice,sl,tp,volume,commission,swap,profit,
-  cancelled,comment,collectedAt from trade_mql;
+  cancelled,comment,collectedAt from trade_mql where date in .un.datesWith[`trade_mql];
 tf:.un.deenum select date,platform:`fxbook,acctId:systemId,tradeKey,action,symbol,
   openTime,closeTime,openPrice,closePrice,sl,tp,volume:lots,commission,swap,profit,
-  username,systemName,ticket,pips,gainPct,durationSec,collectedAt from trade_myfxbook;
+  username,systemName,ticket,pips,gainPct,durationSec,collectedAt from trade_myfxbook where date in .un.datesWith[`trade_myfxbook];
 tr:tm uj tf;
 .un.writePartitioned[`trade; tr; `date];
 .un.backfill[`trade; tr];
