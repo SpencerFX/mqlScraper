@@ -25,6 +25,7 @@ system "l ",.un.rootPath;
 .un.writePart:{[tname;dt;t]
   if[`date in cols t; t:delete date from t];
   tdir:.Q.dd[.Q.dd[.un.root; `$string dt]; tname];
+  if[()~key tdir; system "mkdir \"",(1_string tdir),"\""];
   {[tdir;t;c] (.Q.dd[tdir;c]) set t c}[tdir;t;] each cols t;
   (.Q.dd[tdir;`.d]) set cols t; }
 
